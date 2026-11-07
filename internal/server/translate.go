@@ -334,8 +334,12 @@ func (s *Server) translateAI(ctx context.Context, cl *ai.Client, req trReq, term
 		res.Detected = best
 	}
 	for _, t := range terms {
+		stem := []rune(strings.ToLower(t.Translation))
+		if len(stem) > 4 {
+			stem = stem[:len(stem)-2] // "faktura" is there as "fakturu" too
+		}
 		for _, x := range res.Texts {
-			if strings.Contains(strings.ToLower(x), strings.ToLower(t.Translation)) {
+			if strings.Contains(strings.ToLower(x), string(stem)) {
 				res.Terms++
 				break
 			}
