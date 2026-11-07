@@ -30,6 +30,8 @@ export default function Translate() {
   const [tone, setTone] = useState<Tone>(settings?.tone || '')
   const [text, setText] = useState(() => sp.get('text') || sessionStorage.getItem('ptl-draft') || '')
   const [res, setRes] = useState<TranslateResult | null>(null)
+  const resRef = useRef<TranslateResult | null>(null)
+  resRef.current = res
   const [saved, setSaved] = useState<Translation | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -45,8 +47,14 @@ export default function Translate() {
   const keepTimer = useRef(0)
   const lastKept = useRef('')
 
+  const [refining, setRefining] = useState(false)
+  const [altBusy, setAltBusy] = useState(false)
+
   const eff = effectiveEngine(engine, engines)
-  const live = !!settings?.live_translate && eff === 'offline'
+  const offlineReady = !!engines && (engines.argos.ready || engines.nllb.ready)
+  // as you type: the offline engines right away; with the AI, an offline
+  // draft first and the AI's translation once you pause
+  const live = !!settings?.live_translate && (eff === 'offline' || (eff === 'ai' && offlineReady))
   const aiReady = !!engines?.ai.ready
 
   useEffect(() => { sessionStorage.setItem('ptl-draft', text) }, [text])
@@ -72,34 +80,68 @@ export default function Translate() {
     }, 3500)
   }
 
-  const run = async (opts: { save: boolean; alts?: boolean; src?: string } = { save: true }) => {
+  /** A quick offline translation, shown while the AI works (or as you type). */
+  const draft = (src: string, n: number, done: () => boolean) => {
+    api.post<TranslateResult>(`${V1}/translate`, { text: src, from, to, engine: 'offline', save: false })
+      .then(r => { if (n === seq.current && !done()) { setRes({ ...r, quick: true }); setErr('') } })
+      .catch(() => { /* the AI answers anyway */ })
+  }
+
+  const run = async (opts: { save: boolean; alts?: boolean; src?: string; quick?: boolean } = { save: true }) => {
     const src = opts.src ?? text
     if (!src.trim()) { setRes(null); setErr(''); setSaved(null); return }
     const n = ++seq.current
     setBusy(true)
     setErr('')
+    let done = false
+    const ai = eff === 'ai'
+    if (ai && offlineReady && opts.quick !== false) draft(src, n, () => done)
+    setRefining(ai)
     try {
-      const r = await api.post<TranslateResult>(`${V1}/translate`, { text: src, from, to, engine, tone, alternatives: opts.alts ?? eff === 'ai', kind, save: opts.save })
+      const r = await api.post<TranslateResult>(`${V1}/translate`, { text: src, from, to, engine, tone, alternatives: !!opts.alts, kind, save: opts.save })
+      done = true
       if (n !== seq.current) return
       setRes(r)
       setSaved(r.translation || null)
       if (r.translation) { loadRecent(); announceChange('history') } else if (!opts.save) keep(r, src, kind)
-      if (r.detected && from === 'auto') { /* shown on the picker */ }
     } catch (e) {
-      if (n === seq.current) { setErr(errMsg(e)); setRes(null) }
+      done = true
+      if (n !== seq.current) return
+      // keep a quick draft that is already there, and say why it stayed
+      const cur = resRef.current
+      if (cur?.quick) setRes({ ...cur, note: `The AI did not answer (${errMsg(e)}), so this is the offline translation.` })
+      else { setErr(errMsg(e)); setRes(null) }
     } finally {
-      if (n === seq.current) setBusy(false)
+      if (n === seq.current) { setBusy(false); setRefining(false) }
     }
+  }
+
+  /** Other ways to say it, asked for when wanted (they cost the AI a second more). */
+  const moreWays = async () => {
+    if (!res) return
+    setAltBusy(true)
+    try {
+      const r = await api.post<TranslateResult>(`${V1}/translate`, { text, from, to, engine: 'ai', tone, alternatives: true, save: false })
+      setRes(cur => cur ? { ...cur, alternatives: r.alternatives.filter(a => a !== cur.text).length ? r.alternatives.filter(a => a !== cur.text) : [r.text].filter(a => a !== cur.text) } : cur)
+    } catch (e) { toast(errMsg(e), 'err') } finally { setAltBusy(false) }
   }
   const runRef = useRef(run)
   runRef.current = run
 
-  // as you type (offline engines only: quick and free)
+  // as you type: offline drafts quickly, the AI (when it is the engine) once you pause
   useEffect(() => {
     if (!live) return
-    const t = window.setTimeout(() => runRef.current({ save: false }), text.length > 400 ? 900 : 550)
-    return () => window.clearTimeout(t)
-  }, [text, from, to, live, tone])
+    if (eff === 'offline') {
+      const t = window.setTimeout(() => runRef.current({ save: false }), text.length > 400 ? 900 : 550)
+      return () => window.clearTimeout(t)
+    }
+    if (!text.trim()) { setRes(null); setErr(''); setSaved(null); return }
+    const t1 = window.setTimeout(() => draftRef.current(), text.length > 400 ? 700 : 400)
+    const t2 = window.setTimeout(() => runRef.current({ save: false, quick: false }), text.length > 400 ? 2000 : 1300)
+    return () => { window.clearTimeout(t1); window.clearTimeout(t2) }
+  }, [text, from, to, live, tone, eff])
+  const draftRef = useRef(() => {})
+  draftRef.current = () => { const n = ++seq.current; setRefining(true); draft(text, n, () => false) }
   // a new pair or engine translates the same text again
   useEffect(() => { if (!live && res && text.trim()) runRef.current({ save: true }) }, [to, from, engine, tone]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -200,7 +242,7 @@ export default function Translate() {
       <div className="tr-panes">
         <section className={`tr-pane src ${rec.recording ? 'rec' : ''}`}>
           <textarea ref={box} className="tr-text" dir={dirOf(srcLang, byCode)} value={text} onChange={e => { setText(e.target.value); if (kind !== 'text' && !e.target.value) setKind('text') }} onKeyDown={onKey} onPaste={onPaste}
-            placeholder={live ? 'Type or paste text. It is translated as you type.' : 'Type or paste text, then press Translate (⌘/Ctrl + Enter).'} aria-label="Text to translate" autoFocus spellCheck />
+            placeholder={live ? (eff === 'ai' ? 'Type or paste text. A quick translation shows as you type; the AI polishes it when you pause.' : 'Type or paste text. It is translated as you type.') : 'Type or paste text, then press Translate (⌘/Ctrl + Enter).'} aria-label="Text to translate" autoFocus spellCheck />
           <div className="tr-tools">
             {canRecord && <button type="button" className={`btn ghost icon-only ${rec.recording ? 'tr-rec' : ''}`} onClick={dictate} disabled={hearing || (engines ? !engines.speech.ready && !rec.recording : false)}
               title={engines && !engines.speech.ready ? engines.speech.detail : rec.recording ? 'Stop and write it out' : 'Dictate'} aria-label={rec.recording ? 'Stop dictating' : 'Dictate'}>
@@ -219,7 +261,7 @@ export default function Translate() {
         <section className="tr-pane out" aria-live="polite">
           <div className="tr-result" dir={dirOf(to, byCode)}>
             {err ? <div className="tr-err"><Icon name="alert" size={16} /><div><b>Not translated.</b> {err}{/AI|offline|engine/i.test(err) && <> <Link to="/settings/engines">See the engines</Link>.</>}</div></div>
-              : res ? <p className={`tr-out ${busy ? 'stale' : ''}`}>{res.text}</p>
+              : res ? <p className={`tr-out ${busy && !res.quick ? 'stale' : ''}`}>{res.text}</p>
                 : <p className="tr-placeholder">{busy ? '' : 'The translation appears here.'}</p>}
           </div>
           {res && !err && res.alternatives.length > 0 && (
@@ -227,8 +269,8 @@ export default function Translate() {
           )}
           <div className="tr-tools">
             <span className="tr-meta muted small">
-              {busy ? <><Spinner size={12} /> Translating…</> : res && !err ? <>
-                <Icon name={res.engine === 'ai' ? 'sparkles' : 'server'} size={12} /> {engineLabel(res.engine, res.provider)}
+              {busy && !res?.quick ? <><Spinner size={12} /> Translating…</> : res && !err ? <>
+                <Icon name={res.engine === 'ai' ? 'sparkles' : 'server'} size={12} /> {res.quick && refining ? <>Quick translation · {engines?.ai.provider === 'openai' ? 'the AI' : 'Pocket AI'} is polishing it…</> : engineLabel(res.engine, res.provider)}
                 {detected && <> · from {langName(detected, byCode)}</>}
                 {res.terms > 0 && <> · {res.terms} glossary {res.terms === 1 ? 'term' : 'terms'}</>}
               </> : !live && text.trim() ? 'Press Translate' : ''}
@@ -239,6 +281,7 @@ export default function Translate() {
               <button type="button" className="btn ghost icon-only" onClick={copy} title="Copy" aria-label="Copy the translation"><Icon name="copy" size={18} /></button>
               <button type="button" className={`btn ghost icon-only ${saved?.starred ? 'starred' : ''}`} onClick={star} title={saved?.starred ? 'In your phrasebook' : 'Save to your phrasebook'} aria-label="Save to your phrasebook" aria-pressed={!!saved?.starred}><Icon name="star" size={18} /></button>
               {saved?.starred && <button type="button" className="btn ghost sm" onClick={() => setCollect(true)}>{saved.collection || 'Collection…'}</button>}
+              {res.engine === 'ai' && res.alternatives.length === 0 && <button type="button" className="btn ghost icon-only" onClick={moreWays} disabled={altBusy} title="Other ways to say it" aria-label="Other ways to say it">{altBusy ? <Spinner /> : <Icon name="list" size={18} />}</button>}
               <button type="button" className="btn ghost icon-only" onClick={() => setExplain(true)} disabled={!aiReady} title={aiReady ? 'Explain this phrase' : 'Explaining needs AI'} aria-label="Explain"><Icon name="help" size={18} /></button>
             </>}
           </div>

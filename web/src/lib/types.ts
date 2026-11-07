@@ -40,6 +40,8 @@ export interface Translation {
 export interface TranslateResult {
   text: string; detected: string; engine: string; provider: string; alternatives: string[]; terms: number; note: string; to: string
   translation?: Translation
+  /** an offline draft shown while the AI works */
+  quick?: boolean
 }
 export interface Term { id: number; source_lang: string; target_lang: string; term: string; translation: string; note: string; match_case: boolean; created_at: string }
 export type DocStatus = 'queued' | 'working' | 'done' | 'failed'
