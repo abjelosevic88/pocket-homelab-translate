@@ -136,8 +136,8 @@ export default function Translate() {
       return () => window.clearTimeout(t)
     }
     if (!text.trim()) { setRes(null); setErr(''); setSaved(null); return }
-    const t1 = window.setTimeout(() => draftRef.current(), text.length > 400 ? 700 : 400)
-    const t2 = window.setTimeout(() => runRef.current({ save: false, quick: false }), text.length > 400 ? 2000 : 1300)
+    const t1 = window.setTimeout(() => draftRef.current(), text.length > 400 ? 500 : 250)
+    const t2 = window.setTimeout(() => runRef.current({ save: false, quick: false }), text.length > 400 ? 1600 : 900)
     return () => { window.clearTimeout(t1); window.clearTimeout(t2) }
   }, [text, from, to, live, tone, eff])
   const draftRef = useRef(() => {})
