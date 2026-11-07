@@ -1,0 +1,23 @@
+[Unit]
+Description=Pocket Translate — text, photos, documents and conversations translated on your own server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pocket-translate
+Group=pocket-translate
+ExecStart=/usr/local/bin/pocket-translate
+Environment=DATA_DIR=/var/lib/pocket-translate
+Environment=PORT=8080
+Environment=BASE_URL=https://translate.example.com
+Environment=SECURE_COOKIES=true
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pocket-translate
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

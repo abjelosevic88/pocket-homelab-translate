@@ -1,0 +1,4 @@
+# Pocket Translate behind Caddy.
+translate.example.com {
+	reverse_proxy pocket-translate:8080
+}

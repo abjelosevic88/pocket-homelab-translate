@@ -1,0 +1,48 @@
+# Pocket Translate (Go + SQLite) with its two offline engines: LibreTranslate
+# (Argos models) and NLLB-200 (engines/nllb). The engines download their
+# language models on the first start and keep them in their own folders.
+services:
+  pocket-translate:
+    image: ghcr.io/abjelosevic88/pocket-homelab-translate:latest
+    container_name: pocket-translate
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      BASE_URL: ${BASE_URL:-http://localhost:8080}
+      # SECURE_COOKIES: "true"          # behind HTTPS
+      # First admin (only used while the database has no users):
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      NOTIFY_URL: ${NOTIFY_URL:-}
+      ARGOS_URL: http://libretranslate:5000
+      NLLB_URL: http://nllb:5000
+      # Pocket Core: one sign-in, Pocket AI, and Voice/Learn/Notes/Files/Documents through app links.
+      # CORE_URL: http://pocket-core:8080
+      # CORE_REGISTRATION_KEY: ${CORE_REGISTRATION_KEY}
+    volumes:
+      - ./data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  libretranslate:
+    image: libretranslate/libretranslate:latest
+    container_name: pocket-translate-libretranslate
+    restart: unless-stopped
+    environment:
+      # fewer languages start quicker and use less memory
+      LT_LOAD_ONLY: en,de,fr,es,it,pt,nl,pl,cs,sk,sl,bg,ru,uk,tr,sv,da,nb,fi,el,hu,ro,sq,ar,zh,ja,ko
+    volumes:
+      - ./libretranslate:/home/libretranslate/.local   # owned by uid 1032
+
+  nllb:
+    build: ./engines/nllb
+    image: pocket-translate-nllb:local
+    container_name: pocket-translate-nllb
+    restart: unless-stopped
+    environment:
+      THREADS: "4"
+      # MODEL_REPO: JustFrederik/nllb-200-distilled-600M-ct2-int8   # smaller and quicker, less good
+    volumes:
+      - ./nllb:/models   # owned by uid 1000
