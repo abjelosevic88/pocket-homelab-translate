@@ -2,8 +2,8 @@ package store
 
 import (
 	"context"
-
 	"strings"
+	"time"
 )
 
 const translationCols = `id, user_id, kind, source, source_lang, detected_lang, target_lang, source_text, result_text,
@@ -312,4 +312,32 @@ func (s *Store) HistoryUsers(ctx context.Context) ([]int64, error) {
 		}
 	}
 	return out, rows.Err()
+}
+
+// MergeRecent folds a translation into the person's last history row when
+// it is the same text still being typed: the same or one the beginning of
+// the other, into the same language, unstarred, changed in the last few
+// minutes. The row is updated (and t filled from it); it reports whether
+// it merged. Typing in the translator so leaves one row, not one per pause.
+func (s *Store) MergeRecent(ctx context.Context, uid int64, t *Translation, within time.Duration) (bool, error) {
+	last, err := scanTranslation(s.DB.QueryRowContext(ctx, `SELECT `+translationCols+` FROM translations
+		WHERE user_id = ? AND source = '' AND kind IN ('text', 'speech', 'photo') ORDER BY id DESC LIMIT 1`, uid))
+	if err != nil {
+		return false, nil
+	}
+	at, err := time.Parse(time.RFC3339Nano, last.UpdatedAt)
+	if err != nil || time.Since(at) > within || last.Starred || last.TargetLang != t.TargetLang || last.LearnRef != "" || last.Note != "" {
+		return false, nil
+	}
+	a, b := strings.ToLower(strings.TrimSpace(last.SourceText)), strings.ToLower(strings.TrimSpace(t.SourceText))
+	if a == "" || b == "" || !(strings.HasPrefix(a, b) || strings.HasPrefix(b, a)) {
+		return false, nil
+	}
+	now := Now()
+	if _, err := s.DB.ExecContext(ctx, `UPDATE translations SET source_text = ?, result_text = ?, source_lang = ?, detected_lang = ?, engine = ?, model = ?, tone = ?, kind = ?, updated_at = ?
+		WHERE id = ? AND user_id = ?`, t.SourceText, t.ResultText, t.SourceLang, t.DetectedLang, t.Engine, t.Model, t.Tone, t.Kind, now, last.ID, uid); err != nil {
+		return false, err
+	}
+	t.ID, t.UserID, t.CreatedAt, t.UpdatedAt, t.Collection = last.ID, uid, last.CreatedAt, now, last.Collection
+	return true, nil
 }

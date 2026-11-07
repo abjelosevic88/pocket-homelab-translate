@@ -463,3 +463,31 @@ func (a *app) waitDoc(auth, docID string) map[string]any {
 	a.t.Fatal("document not translated in time")
 	return nil
 }
+
+// Typing in the translator keeps one history row per sentence, not one per pause.
+func TestHistoryMergesWhileTyping(t *testing.T) {
+	a := newApp(t, nil)
+	withEngines(t, a)
+	for _, txt := range []string{"the car", "the car is", "the car is red", "the car is red"} {
+		a.ok(a.alice, "POST", "/api/v1/translate", map[string]any{"text": txt, "from": "en", "to": "de", "engine": "offline"})
+	}
+	// the translator's own "keep" of a settled live result merges too
+	a.ok(a.alice, "POST", "/api/v1/translations", map[string]any{"source_text": "the car is red", "result_text": "das Auto ist rot!", "source_lang": "en", "target_lang": "de", "engine": "argos", "starred": false})
+	l := a.ok(a.alice, "GET", "/api/v1/translations", nil)["translations"].([]any)
+	if len(l) != 1 || l[0].(map[string]any)["source_text"] != "the car is red" || l[0].(map[string]any)["result_text"] != "das Auto ist rot!" {
+		t.Fatalf("history %v", l)
+	}
+	// another text, or the same into another language, is a new row
+	a.ok(a.alice, "POST", "/api/v1/translate", map[string]any{"text": "hello", "from": "en", "to": "de", "engine": "offline"})
+	a.ok(a.alice, "POST", "/api/v1/translate", map[string]any{"text": "hello", "from": "en", "to": "sr-Latn", "engine": "offline"})
+	if n := a.ok(a.alice, "GET", "/api/v1/translations", nil)["total"]; n != float64(3) {
+		t.Fatalf("total %v", n)
+	}
+	// a starred phrase is never overwritten
+	id0 := id(a.ok(a.alice, "GET", "/api/v1/translations?limit=1", nil)["translations"].([]any)[0].(map[string]any))
+	a.ok(a.alice, "PUT", "/api/v1/translations/"+id0, map[string]any{"starred": true})
+	a.ok(a.alice, "POST", "/api/v1/translate", map[string]any{"text": "hello there", "from": "en", "to": "sr-Latn", "engine": "offline"})
+	if n := a.ok(a.alice, "GET", "/api/v1/translations", nil)["total"]; n != float64(4) {
+		t.Fatalf("total after star %v", n)
+	}
+}

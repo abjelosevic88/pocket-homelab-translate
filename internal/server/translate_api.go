@@ -12,6 +12,10 @@ import (
 	"github.com/abjelosevic88/pocket-homelab-translate/internal/store"
 )
 
+// mergeWithin is how long a history row stays open to the same text being
+// typed further (one row per sentence, not one per pause).
+const mergeWithin = 5 * time.Minute
+
 // maxText caps one text to translate.
 const maxText = 20000
 
@@ -121,7 +125,13 @@ func (s *Server) handleTranslate(w http.ResponseWriter, r *http.Request) {
 		if t.SourceLang == "" {
 			t.SourceLang = "auto"
 		}
-		if _, err := s.store.AddTranslation(ctx, u.ID, t); err == nil {
+		merged := false
+		if app == "" {
+			merged, _ = s.store.MergeRecent(ctx, u.ID, t, mergeWithin)
+		}
+		if merged {
+			out["translation"] = t
+		} else if _, err := s.store.AddTranslation(ctx, u.ID, t); err == nil {
 			out["translation"] = t
 		}
 	}

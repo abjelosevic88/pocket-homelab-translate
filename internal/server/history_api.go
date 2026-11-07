@@ -114,6 +114,13 @@ func (s *Server) handleAddTranslation(w http.ResponseWriter, r *http.Request) {
 		}
 		t.ResultText, t.DetectedLang, t.Engine, t.Model = res.Texts[0], res.Detected, res.Engine, res.Provider
 	}
+	if !t.Starred && t.Source == "" && in.Engine != "" {
+		// the translator keeping what you typed: the same text typed further is one row
+		if merged, err := s.store.MergeRecent(ctx, u.ID, t, mergeWithin); err == nil && merged {
+			writeJSON(w, http.StatusOK, t)
+			return
+		}
+	}
 	dup, err := s.store.AddTranslation(ctx, u.ID, t)
 	if err != nil {
 		s.fail(w, err, "add phrase")
