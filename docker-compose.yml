@@ -37,8 +37,9 @@ services:
       - ./libretranslate:/home/libretranslate/.local   # owned by uid 1032
 
   nllb:
+    # Published with each release (amd64 + arm64); `docker compose build nllb` builds it from ./engines/nllb.
+    image: ghcr.io/abjelosevic88/pocket-homelab-translate-nllb:latest
     build: ./engines/nllb
-    image: pocket-translate-nllb:local
     container_name: pocket-translate-nllb
     restart: unless-stopped
     environment:
