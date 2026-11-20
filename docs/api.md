@@ -32,7 +32,7 @@ Language codes are ISO 639-1, with `sr-Latn` / `sr-Cyrl` for Serbian's two alpha
 
 ## For the rest of the box
 
-`GET /summary`, `GET /search?q=`, `GET /day/{YYYY-MM-DD}`; `GET /export.json`, `GET /export.csv?starred=1`, `POST /import` (an export, Google Translate's saved phrases or a CSV).
+`GET /summary`, `GET /search?q=`, `GET /day/{YYYY-MM-DD}`; `GET /export.json`, `GET /export.csv?starred=1`, `POST /import` (an export, Google Translate's saved phrases or a CSV; what is already here is skipped), `GET /pocket/portable` (what Pocket Move can copy out and bring in, for `move:export` / `move:import` links).
 
 ## The LibreTranslate API
 

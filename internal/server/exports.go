@@ -132,6 +132,10 @@ func (s *Server) importPocket(ctx context.Context, uid int64, doc exportDoc) map
 		if t == nil || strings.TrimSpace(t.SourceText) == "" || engine.Normalize(t.TargetLang) == "" {
 			continue
 		}
+		if have, err := s.store.GetTranslation(ctx, uid, t.ID); err == nil && have.CreatedAt == t.CreatedAt && have.SourceText == t.SourceText {
+			same++ // the person's own, on this box
+			continue
+		}
 		n := *t
 		n.ID = 0
 		n.Source = ""

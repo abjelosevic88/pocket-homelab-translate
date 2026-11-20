@@ -22,6 +22,19 @@ var linkOffers = []core.Offer{
 	{Scope: "phrasebook:write", Name: "Add to your phrasebook", Description: "Save a phrase and its translation to your phrasebook (\"save this sentence\" in Chat or Mail). It may change or remove only the phrases it added itself."},
 }
 
+// portable is what Pocket Move may copy out and bring in for a person
+// (docs/move.md in pocket-homelab-core); Register adds move:export/import.
+var portable = &core.Portable{
+	Exports: []core.PortableExport{
+		{Path: "/api/v1/export.json", File: "translate.json", Kind: core.KindPocket, Title: "Your translations and phrasebook, glossary, conversations and the list of documents you translated"},
+		{Path: "/api/v1/export.csv", File: "translations.csv", Kind: core.KindCSV, Title: "Your translations and phrasebook as a table"},
+	},
+	Imports: []core.PortableImport{
+		{Path: "/api/v1/import", Kind: core.KindPocket, ContentType: "application/json", Title: "Adds the translations, glossary and conversations from another box; what is already here is skipped"},
+		{Path: "/api/v1/import", Kind: core.KindCSV, ContentType: "text/csv", Title: "Adds Google Translate's saved phrases (Takeout \"Saved translations.csv\") or this app's own CSV to the phrasebook; phrases already here are skipped"},
+	},
+}
+
 type linkRoute struct {
 	methods string
 	path    *regexp.Regexp
@@ -42,6 +55,9 @@ var errLinkScope = errors.New("outside the link's scope")
 
 // linkAllows reports whether a link token with these scopes may make this request.
 func linkAllows(scopes []string, r *http.Request) bool {
+	if portable.LinkAllows(scopes, r) {
+		return true
+	}
 	for _, lr := range linkRoutes {
 		if !strings.Contains(" "+lr.methods+" ", " "+r.Method+" ") || !lr.path.MatchString(r.URL.Path) {
 			continue
