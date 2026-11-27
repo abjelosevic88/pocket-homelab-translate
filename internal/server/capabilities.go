@@ -14,9 +14,9 @@ import (
 
 // What Pocket Search and Pocket Hub ask Translate (the capabilities value in
 // links.go): one route each, in the shape every Pocket app answers in. They
-// read the rows the Phrasebook and History pages list, as the request's
-// person. Nothing is translated, detected or changed: no engine and no
-// Pocket AI is asked.
+// read the rows the Phrasebook, Glossary and History pages list, as the
+// request's person. Nothing is translated, detected or changed: no engine
+// and no Pocket AI is asked.
 
 // widgetRows is how many saved phrases the widget names.
 const widgetRows = 5
@@ -63,27 +63,61 @@ func translationPath(t *store.Translation) string {
 
 // ---------- search ----------
 
-// pocketSearch answers Pocket Search with what the Phrasebook and History
-// search boxes find (GET /translations?q=: the text, its translation, the
-// note and the collection), saved phrases first, then the rest of the
-// history, each newest first.
+// termLanguages names a glossary term's languages as the Glossary page
+// does, "*" being any language: "Any language → Serbian".
+func termLanguages(t *store.Term) string {
+	name := func(code string) string {
+		if code == "*" {
+			return "Any language"
+		}
+		return engine.Name(code)
+	}
+	return name(t.SourceLang) + " → " + name(t.TargetLang)
+}
+
+// pocketSearch answers Pocket Search with what the app's own searches find:
+// the Phrasebook and History search boxes (GET /translations?q=: the text,
+// its translation, the note and the collection) and the glossary's (GET
+// /glossary?q=: the term, its translation and the note), the matches GET
+// /search gives. Saved phrases come first, then glossary terms, then the
+// rest of the history; phrases and history newest first, terms as the
+// Glossary page lists them. The answer mixes two tables, so ids are
+// "phrase:12", "term:4", "translation:13".
 func (s *Server) pocketSearch(r *http.Request, q string, limit int) ([]core.SearchItem, error) {
 	if !hasWord(q) {
 		return nil, nil
 	}
 	ctx := r.Context()
-	list, _, err := s.store.ListTranslations(ctx, actorID(ctx), store.TranslationFilter{Q: q, PhrasesFirst: true, Limit: limit})
+	uid := actorID(ctx)
+	list, _, err := s.store.ListTranslations(ctx, uid, store.TranslationFilter{Q: q, PhrasesFirst: true, Limit: limit})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]core.SearchItem, 0, len(list))
+	terms, err := s.store.ListTerms(ctx, uid, "", "", q)
+	if err != nil {
+		return nil, err
+	}
+	var phrases, history []core.SearchItem
 	for _, t := range list {
-		kind := "translation"
+		it := core.SearchItem{Title: clip(oneLine(t.SourceText), 100), Date: t.CreatedAt,
+			Snippet: joinNonEmpty(" · ", languagePair(t), clip(oneLine(t.ResultText), 160)), URL: translationPath(t)}
 		if t.Starred {
-			kind = "phrase"
+			it.ID, it.Kind = "phrase:"+strconv.FormatInt(t.ID, 10), "phrase"
+			phrases = append(phrases, it)
+		} else {
+			it.ID, it.Kind = "translation:"+strconv.FormatInt(t.ID, 10), "translation"
+			history = append(history, it)
 		}
-		out = append(out, core.SearchItem{ID: strconv.FormatInt(t.ID, 10), Title: clip(oneLine(t.SourceText), 100), Kind: kind, Date: t.CreatedAt,
-			Snippet: joinNonEmpty(" · ", languagePair(t), clip(oneLine(t.ResultText), 160)), URL: translationPath(t)})
+	}
+	out := make([]core.SearchItem, 0, len(list)+len(terms))
+	out = append(out, phrases...)
+	for _, t := range terms {
+		out = append(out, core.SearchItem{ID: "term:" + strconv.FormatInt(t.ID, 10), Title: clip(oneLine(t.Term), 100), Kind: "term", Date: t.CreatedAt,
+			Snippet: joinNonEmpty(" · ", termLanguages(t), clip(oneLine(t.Translation), 100), clip(oneLine(t.Note), 100)), URL: "/glossary"})
+	}
+	out = append(out, history...)
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }

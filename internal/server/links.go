@@ -43,7 +43,7 @@ var portable = &core.Portable{
 // without its translation is translated on the spot, by Pocket AI or an
 // engine, which is too slow for a line typed in Pocket Hub.
 var capabilities = core.Capabilities{
-	Search: &core.Searchable{What: "Your phrasebook and translation history, by the text and its translation", Kinds: []string{"phrase", "translation"}, Bangs: []string{"translate", "phrase"}},
+	Search: &core.Searchable{What: "Your phrasebook, glossary and translation history, by the text and its translation", Kinds: []string{"phrase", "term", "translation"}, Bangs: []string{"translate", "phrase"}},
 	Widget: &core.Widget{Title: "Phrasebook", What: "The phrases you saved last"},
 }
 

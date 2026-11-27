@@ -91,24 +91,37 @@ func (a *app) rows() int {
 	return n
 }
 
+// term adds a glossary term and answers its id.
+func (a *app) term(auth, from, to, term, translation, note string) string {
+	a.t.Helper()
+	return id(a.ok(auth, "POST", "/api/v1/glossary", map[string]any{"source_lang": from, "target_lang": to, "term": term, "translation": translation, "note": note}))
+}
+
 func TestPocketSearch(t *testing.T) {
 	a := newApp(t, nil)
 	evening := a.phrase(a.alice, "Good evening", "Guten Abend", "en", "de", true)
 	seen := a.phrase(a.alice, "Have you seen the evening news?\nIt was long.", "Hast du die Abendnachrichten gesehen?", "en", "de", false)
 	a.phrase(a.alice, "Where is the station?", "Gdje je stanica?", "auto", "hr", true)
+	eveningTerm := a.term(a.alice, "en", "de", "evening", "Abend", "never Nacht")
+	invoice := a.term(a.alice, "*", "sr", "invoice", "faktura", "")
 	a.phrase(a.bob, "Good evening, Bob", "Guten Abend, Bob", "en", "de", true)
+	a.term(a.bob, "en", "hr", "platform", "peron", "at the station")
 	before := a.rows()
 
 	got := capItems(t, a.ok(a.alice, "GET", "/api/v1/pocket/search?q=evening", nil))
-	if len(got) != 2 {
+	if len(got) != 3 {
 		t.Fatalf("evening: %v", got)
 	}
-	// the phrasebook first, then the history, each with where it opens
-	if p := got[0]; p["id"] != evening || p["kind"] != "phrase" || p["title"] != "Good evening" || p["snippet"] != "English → German · Guten Abend" ||
+	// the phrasebook first, then the glossary, then the history, each with where it opens
+	if p := got[0]; p["id"] != "phrase:"+evening || p["kind"] != "phrase" || p["title"] != "Good evening" || p["snippet"] != "English → German · Guten Abend" ||
 		p["url"] != "/phrasebook?q=Good+evening" || p["date"] == "" {
 		t.Fatalf("phrase: %v", p)
 	}
-	if h := got[1]; h["id"] != seen || h["kind"] != "translation" || h["title"] != "Have you seen the evening news? It was long." ||
+	if g := got[1]; g["id"] != "term:"+eveningTerm || g["kind"] != "term" || g["title"] != "evening" || g["snippet"] != "English → German · Abend · never Nacht" ||
+		g["url"] != "/glossary" || g["date"] == "" {
+		t.Fatalf("term: %v", g)
+	}
+	if h := got[2]; h["id"] != "translation:"+seen || h["kind"] != "translation" || h["title"] != "Have you seen the evening news? It was long." ||
 		h["snippet"] != "English → German · Hast du die Abendnachrichten gesehen?" || h["url"] != "/history?q="+url.QueryEscape("Have you seen the evening news?") {
 		t.Fatalf("history: %v", h)
 	}
@@ -116,25 +129,42 @@ func TestPocketSearch(t *testing.T) {
 	if got := capItems(t, a.ok(a.alice, "GET", "/api/v1/pocket/search?q=stanica", nil)); len(got) != 1 || got[0]["snippet"] != "Croatian · Gdje je stanica?" {
 		t.Fatalf("by translation: %v", got)
 	}
-	if got := capItems(t, a.ok(a.alice, "GET", "/api/v1/pocket/search?q=evening&limit=1", nil)); len(got) != 1 || got[0]["id"] != evening {
+	// a term is found by its translation; one for any language says so
+	if got := capItems(t, a.ok(a.alice, "GET", "/api/v1/pocket/search?q=faktura", nil)); len(got) != 1 || got[0]["id"] != "term:"+invoice || got[0]["snippet"] != "Any language → Serbian (Latin) · faktura" {
+		t.Fatalf("term by translation: %v", got)
+	}
+	if got := capItems(t, a.ok(a.alice, "GET", "/api/v1/pocket/search?q=evening&limit=2", nil)); len(got) != 2 || got[0]["kind"] != "phrase" || got[1]["kind"] != "term" {
+		t.Fatalf("limit 2: %v", got)
+	}
+	if got := capItems(t, a.ok(a.alice, "GET", "/api/v1/pocket/search?q=evening&limit=1", nil)); len(got) != 1 || got[0]["id"] != "phrase:"+evening {
 		t.Fatalf("limit 1: %v", got)
+	}
+	// the same matches as the app's own search for the rest of the box
+	if old := a.ok(a.alice, "GET", "/api/v1/search?q=evening", nil)["results"].([]any); len(old) != 3 {
+		t.Fatalf("GET /search differs: %v", old)
 	}
 	// the URL finds the row on its page, as the page's own search does
 	if l := a.ok(a.alice, "GET", "/api/v1/translations?starred=1&q=Good+evening", nil)["translations"].([]any); len(l) != 1 || id(l[0].(map[string]any)) != evening {
 		t.Fatalf("the phrasebook's search: %v", l)
 	}
-	// no words: nothing, not every phrase
+	// no words: nothing, not every phrase or term
 	for _, q := range []string{"", "%3F%3F", "*", "%25", "_"} {
 		if got := capItems(t, a.ok(a.alice, "GET", "/api/v1/pocket/search?q="+q, nil)); len(got) != 0 {
 			t.Fatalf("q=%q: %v", q, got)
 		}
 	}
-	// another person's phrases never appear
+	// another person's phrases and terms never appear
 	if got := capItems(t, a.ok(a.bob, "GET", "/api/v1/pocket/search?q=evening", nil)); len(got) != 1 || got[0]["title"] != "Good evening, Bob" {
 		t.Fatalf("bob: %v", got)
 	}
-	if got := capItems(t, a.ok(a.bob, "GET", "/api/v1/pocket/search?q=station", nil)); len(got) != 0 {
-		t.Fatalf("bob finds alice's: %v", got)
+	for _, q := range []string{"station", "invoice", "faktura", "Nacht"} {
+		got := capItems(t, a.ok(a.bob, "GET", "/api/v1/pocket/search?q="+q, nil))
+		if q == "station" && (len(got) != 1 || got[0]["title"] != "platform") || q != "station" && len(got) != 0 {
+			t.Fatalf("bob, %q: %v", q, got)
+		}
+	}
+	if got := capItems(t, a.ok(a.alice, "GET", "/api/v1/pocket/search?q=peron", nil)); len(got) != 0 {
+		t.Fatalf("alice finds bob's term: %v", got)
 	}
 	a.expect(http.StatusUnauthorized, "", "GET", "/api/v1/pocket/search?q=evening", nil)
 	if a.rows() != before {
@@ -224,7 +254,7 @@ func TestPocketLinkTokens(t *testing.T) {
 		}
 	}
 	// the token acts for its person only
-	if got := capItems(t, a.ok("pcx_alice_search", "GET", "/api/v1/pocket/search?q=evening", nil)); len(got) != 1 || got[0]["id"] != evening {
+	if got := capItems(t, a.ok("pcx_alice_search", "GET", "/api/v1/pocket/search?q=evening", nil)); len(got) != 1 || got[0]["id"] != "phrase:"+evening {
 		t.Fatalf("alice through the link: %v", got)
 	}
 	if got := capItems(t, a.ok("pcx_bob_search", "GET", "/api/v1/pocket/search?q=evening", nil)); len(got) != 0 {
@@ -279,7 +309,7 @@ func TestManifestCapabilities(t *testing.T) {
 	}
 	search, _ := m["search"].(map[string]any)
 	widget, _ := m["widget"].(map[string]any)
-	if search == nil || fmt.Sprint(search["bangs"]) != "[translate phrase]" || fmt.Sprint(search["kinds"]) != "[phrase translation]" ||
+	if search == nil || fmt.Sprint(search["bangs"]) != "[translate phrase]" || fmt.Sprint(search["kinds"]) != "[phrase term translation]" ||
 		widget == nil || widget["title"] != "Phrasebook" {
 		t.Fatalf("capabilities: %v %v", search, widget)
 	}

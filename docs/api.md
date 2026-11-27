@@ -38,7 +38,7 @@ Language codes are ISO 639-1, with `sr-Latn` / `sr-Cyrl` for Serbian's two alpha
 
 The routes every Pocket app answers in the same shape (`docs/capabilities.md` in pocket-homelab-core). They read what is kept here and never translate anything; a Core link token opens each one with its own scope only.
 
-- `GET /pocket/search?q=&limit=` (`pocket:search`): saved phrases (kind `phrase`), then the rest of the history (kind `translation`), each newest first, found by the text, its translation, the note or the collection. The title is the text, the line under it the languages and the translation; the link opens the Phrasebook or History page searching for it.
+- `GET /pocket/search?q=&limit=` (`pocket:search`): saved phrases (kind `phrase`, id `phrase:12`), then glossary terms (kind `term`, id `term:4`), then the rest of the history (kind `translation`, id `translation:13`), found as `GET /search` finds them: phrases and history by the text, its translation, the note or the collection, newest first; terms by the term, its translation or the note. The title is the text or the term, the line under it the languages and the translation (and a term's note); the link opens the Phrasebook or History page searching for it, or the Glossary page.
 - `GET /pocket/widget` (`pocket:widget`): how many phrases the phrasebook holds and the newest five with their translation; nothing when the phrasebook is empty.
 
 There is no `/pocket/day` (Pocket Day reads `GET /day/{date}` through `phrasebook:read`) and no `/pocket/capture`: a phrase saved without its translation is translated on the spot, which takes too long for a quick line.
