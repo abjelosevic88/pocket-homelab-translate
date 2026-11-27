@@ -121,8 +121,11 @@ type TranslationFilter struct {
 	Lang       string // either side
 	Source     string // only rows this linked app added
 	Day        string // YYYY-MM-DD, local
-	Limit      int
-	Offset     int
+	// PhrasesFirst lists the phrasebook's rows before the rest, each part
+	// newest first (else the phrasebook goes by collection, history by date).
+	PhrasesFirst bool
+	Limit        int
+	Offset       int
 }
 
 // ListTranslations lists a person's translations, newest first.
@@ -167,7 +170,9 @@ func (s *Store) ListTranslations(ctx context.Context, uid int64, f TranslationFi
 		limit = 50
 	}
 	order := "created_at DESC, id DESC"
-	if f.Starred {
+	if f.PhrasesFirst {
+		order = "starred DESC, created_at DESC, id DESC"
+	} else if f.Starred {
 		order = "collection, created_at DESC, id DESC"
 	}
 	rows, err := s.DB.QueryContext(ctx, `SELECT `+translationCols+` FROM translations WHERE `+w+` ORDER BY `+order+` LIMIT ? OFFSET ?`, append(args, limit, f.Offset)...)

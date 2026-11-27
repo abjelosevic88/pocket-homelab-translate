@@ -35,6 +35,18 @@ var portable = &core.Portable{
 	},
 }
 
+// capabilities are what Pocket Search and Pocket Hub may ask Translate
+// (docs/capabilities.md in pocket-homelab-core); Register adds the pocket:*
+// offers. The routes are in capabilities.go. Both only read what is kept
+// here: nothing is translated. There is no day (Pocket Day already reads
+// the history through phrasebook:read) and no quick line: a phrase added
+// without its translation is translated on the spot, by Pocket AI or an
+// engine, which is too slow for a line typed in Pocket Hub.
+var capabilities = core.Capabilities{
+	Search: &core.Searchable{What: "Your phrasebook and translation history, by the text and its translation", Kinds: []string{"phrase", "translation"}, Bangs: []string{"translate", "phrase"}},
+	Widget: &core.Widget{Title: "Phrasebook", What: "The phrases you saved last"},
+}
+
 type linkRoute struct {
 	methods string
 	path    *regexp.Regexp
@@ -55,7 +67,7 @@ var errLinkScope = errors.New("outside the link's scope")
 
 // linkAllows reports whether a link token with these scopes may make this request.
 func linkAllows(scopes []string, r *http.Request) bool {
-	if portable.LinkAllows(scopes, r) {
+	if portable.LinkAllows(scopes, r) || capabilities.LinkAllows(scopes, r) {
 		return true
 	}
 	for _, lr := range linkRoutes {

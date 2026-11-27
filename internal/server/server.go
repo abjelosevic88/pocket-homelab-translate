@@ -260,12 +260,14 @@ func (s *Server) registerWithCore(ctx context.Context) error {
 	m := core.Manifest{
 		Slug: "translate", Name: "Pocket Translate",
 		Description: "Translate text, photos, documents and conversations, on your own server. Type or paste, take a photo of a menu or a sign, drop in a Word, PowerPoint or PDF file and get it back in the same layout, or talk with someone across two languages, each side read aloud. Serbian comes in Latin or Cyrillic. Pocket AI translates with tone and context and explains phrases; two offline engines on the box (Argos and NLLB-200, two hundred languages) work without it. Keeps your history, a phrasebook (sent to Pocket Learn as flashcards) and your own glossary of fixed terms; other apps (Chat, Mail, Notes, Blog) can translate through it.",
-		Icon:        "/favicon.svg", Version: Version,
+		Icon:        "/favicon.svg", Version: Version, Category: "Tools",
 		URL: s.cfg.CoreAppURL, PublicURL: s.cfg.BaseURL, HealthPath: "/healthz", EnvPrefix: "TRANSLATE",
 		Publishes: eventTopics,
 		Offers:    linkOffers,
 		Portable:  portable,
 		Uses:      append(linkUses(), core.InferenceUse()),
+
+		Capabilities: capabilities,
 	}
 	if s.cfg.BaseURL != "" {
 		m.OIDC = &core.OIDCRequest{RedirectURIs: []string{s.oidcCallbackURL()}}
